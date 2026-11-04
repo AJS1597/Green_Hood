@@ -182,7 +182,7 @@ export async function loadAssets(): Promise<GameAssets> {
   const sword = new ex.Sound(AssetPaths.sfxSword);
   sword.volume = 0.8;
   const jump = new ex.Sound(AssetPaths.sfxJump);
-  jump.volume = 0.8;
+  jump.volume = 0.35;
 
   // Excalibur refuses to play a Sound until it is loaded, so decode them now.
   // allSettled so a single bad file can't stop the game from starting.

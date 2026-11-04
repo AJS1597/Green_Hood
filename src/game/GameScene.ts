@@ -160,10 +160,39 @@ export class GameScene extends ex.Scene {
     return swordRight > kLeft && swordLeft < kRight && swordBottom > kTop && swordTop < kBottom;
   }
 
+  /** Does the player's body overlap this king? */
+  private touchesKing(king: KingActor): boolean {
+    if (king.isDying) return false;
+    const { x, y } = this.player.state;
+    const pLeft = x - CONFIG.PLAYER.width / 2;
+    const pRight = x + CONFIG.PLAYER.width / 2;
+    const pTop = y - CONFIG.PLAYER.height;
+    const pBottom = y;
+
+    const halfW = CONFIG.ENEMY.width / 2;
+    const kLeft = king.state.x - halfW;
+    const kRight = king.state.x + halfW;
+    const kTop = king.state.y - CONFIG.ENEMY.height;
+    const kBottom = king.state.y;
+
+    return pRight > kLeft && pLeft < kRight && pBottom > kTop && pTop < kBottom;
+  }
+
   private resolveSwordHits(): void {
     for (const king of this.kings) {
       if (this.swordTouches(king)) {
         king.cutDown();
+      }
+    }
+  }
+
+  /** Touching a live king sends the player back to the spawn point. */
+  private checkKingCollisions(): void {
+    for (const king of this.kings) {
+      if (this.touchesKing(king)) {
+        this.player.respawn();
+        this.setMessage('The King got you!');
+        return;
       }
     }
   }
@@ -198,6 +227,7 @@ export class GameScene extends ex.Scene {
       this.setMessage('Back to the start!');
     }
 
+    this.checkKingCollisions();
     this.checkGoal();
   }
 

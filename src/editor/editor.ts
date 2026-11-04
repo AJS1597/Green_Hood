@@ -1,5 +1,5 @@
 import { AssetPaths, SHEETS, SOLID_TILE_HINTS, TILE_COUNT } from '../game/tileset';
-import { type Level, createEmptyLevel } from '../game/level';
+import { type Level } from '../game/level';
 import { loadLevel, saveLevel } from '../game/levelFile';
 
 /**
@@ -7,45 +7,151 @@ import { loadLevel, saveLevel } from '../game/levelFile';
  *  LEVEL EDITOR  (open the game with /dev on the end of the URL)
  * ============================================================================
  *
- * A small, self-contained tilemap editor:
+ * A pannable tilemap editor:
+ *   - the grid fills the window and is effectively infinite (pan to keep going)
  *   - the palette lists every tile in `sheet.png`
- *   - pick a tile, then click/drag on the grid to paint
- *   - tools for erasing, toggling collision, and placing spawn/goal
- *   - Save writes straight to public/levels/level1.json through the dev server
+ *   - tools for painting, erasing, collision, and spawn/goal placement
+ *   - Save crops the map to the smallest bounding box around everything you
+ *     painted, so huge empty areas are never stored
  */
 
-type Tool = 'brush' | 'erase' | 'solid' | 'spawn' | 'goal';
+type Tool = 'brush' | 'erase' | 'solid' | 'spawn' | 'goal' | 'pan';
 
-const CELL = 20; // pixels per tile on the editor grid
+const CELL = 24; // pixels per tile in the editor
 const PALETTE_SCALE = 2; // palette tile zoom
 
 const COLOR = {
   background: '#0b1220',
   grid: 'rgba(255,255,255,0.08)',
+  gridMajor: 'rgba(255,255,255,0.16)',
   solid: 'rgba(255,64,64,0.35)',
   spawn: 'rgba(64,220,120,0.55)',
   goal: 'rgba(255,210,64,0.55)',
   select: '#ffd23f',
 };
 
-export async function startEditor(): Promise<void> {
-  const params = new URLSearchParams(location.search);
-  const columns = Number(params.get('cols')) || 60;
-  const rows = Number(params.get('rows')) || 22;
+export interface Doc {
+  /** "col,row" -> tile index. */
+  tiles: Map<string, number>;
+  /** "col,row" cells that collide. */
+  solids: Set<string>;
+  spawn: { col: number; row: number };
+  goal: { col: number; row: number };
+}
 
-  let level: Level;
-  try {
-    level = await loadLevel();
-  } catch {
-    level = createEmptyLevel(columns, rows);
+const key = (col: number, row: number) => `${col},${row}`;
+const parseKey = (k: string): [number, number] => {
+  const [c, r] = k.split(',');
+  return [Number(c), Number(r)];
+};
+
+export function emptyDoc(): Doc {
+  return { tiles: new Map(), solids: new Set(), spawn: { col: 1, row: 1 }, goal: { col: 2, row: 1 } };
+}
+
+export function docFromLevel(level: Level): Doc {
+  const doc = emptyDoc();
+  for (let row = 0; row < level.rows; row++) {
+    for (let col = 0; col < level.columns; col++) {
+      const tile = level.tiles[row]?.[col] ?? -1;
+      if (tile >= 0) doc.tiles.set(key(col, row), tile);
+      if (level.solids[row]?.[col]) doc.solids.add(key(col, row));
+    }
+  }
+  doc.spawn = { ...level.spawn };
+  doc.goal = { ...level.goal };
+  return doc;
+}
+
+/** Crop everything painted to its bounding box and build a dense Level. */
+export function docToLevel(doc: Doc): Level {
+  let minC = Infinity;
+  let minR = Infinity;
+  let maxC = -Infinity;
+  let maxR = -Infinity;
+  const consider = (c: number, r: number) => {
+    minC = Math.min(minC, c);
+    minR = Math.min(minR, r);
+    maxC = Math.max(maxC, c);
+    maxR = Math.max(maxR, r);
+  };
+
+  for (const k of doc.tiles.keys()) consider(...parseKey(k));
+  for (const k of doc.solids) consider(...parseKey(k));
+  consider(doc.spawn.col, doc.spawn.row);
+  consider(doc.goal.col, doc.goal.row);
+
+  if (!Number.isFinite(minC)) {
+    minC = 0;
+    minR = 0;
+    maxC = 0;
+    maxR = 0;
   }
 
+  const columns = maxC - minC + 1;
+  const rows = maxR - minR + 1;
+  const tiles = Array.from({ length: rows }, () => new Array<number>(columns).fill(-1));
+  const solids = Array.from({ length: rows }, () => new Array<boolean>(columns).fill(false));
+
+  for (const [k, tile] of doc.tiles) {
+    const [c, r] = parseKey(k);
+    const row = tiles[r - minR];
+    if (row) row[c - minC] = tile;
+  }
+  for (const k of doc.solids) {
+    const [c, r] = parseKey(k);
+    const row = solids[r - minR];
+    if (row) row[c - minC] = true;
+  }
+
+  return {
+    tileSize: 16,
+    columns,
+    rows,
+    spawn: { col: doc.spawn.col - minC, row: doc.spawn.row - minR },
+    goal: { col: doc.goal.col - minC, row: doc.goal.row - minR },
+    tiles,
+    solids,
+  };
+}
+
+/** Bounding box of everything painted (for the Fit button). */
+function docBounds(doc: Doc): { minC: number; minR: number; maxC: number; maxR: number } {
+  let minC = Infinity;
+  let minR = Infinity;
+  let maxC = -Infinity;
+  let maxR = -Infinity;
+  const consider = (c: number, r: number) => {
+    minC = Math.min(minC, c);
+    minR = Math.min(minR, r);
+    maxC = Math.max(maxC, c);
+    maxR = Math.max(maxR, r);
+  };
+  for (const k of doc.tiles.keys()) consider(...parseKey(k));
+  for (const k of doc.solids) consider(...parseKey(k));
+  consider(doc.spawn.col, doc.spawn.row);
+  consider(doc.goal.col, doc.goal.row);
+  if (!Number.isFinite(minC)) return { minC: 0, minR: 0, maxC: 0, maxR: 0 };
+  return { minC, minR, maxC, maxR };
+}
+
+export async function startEditor(): Promise<void> {
   const sheet = await loadSheetImage();
   const ui = buildDom();
+
+  let doc: Doc;
+  try {
+    doc = docFromLevel(await loadLevel());
+  } catch {
+    doc = emptyDoc();
+  }
 
   let selectedTile = 8;
   let tool: Tool = 'brush';
   let painting = false;
+  let panning = false;
+  let lastPointer = { x: 0, y: 0 };
+  const view = { x: 0, y: 0 }; // top-left of the viewport, in world pixels
 
   // ---------------------------------------------------------------- palette
   const palette = ui.paletteCanvas;
@@ -55,9 +161,9 @@ export async function startEditor(): Promise<void> {
   if (!paletteCtx) throw new Error('no 2d context');
 
   const drawPalette = () => {
+    const s = SHEETS.tiles.spriteWidth * PALETTE_SCALE;
     paletteCtx.imageSmoothingEnabled = false;
     paletteCtx.clearRect(0, 0, palette.width, palette.height);
-    const s = SHEETS.tiles.spriteWidth * PALETTE_SCALE;
     for (let i = 0; i < TILE_COUNT; i++) {
       const col = i % SHEETS.tiles.columns;
       const row = Math.floor(i / SHEETS.tiles.columns);
@@ -68,7 +174,6 @@ export async function startEditor(): Promise<void> {
         paletteCtx.strokeRect(col * s + 0.5, row * s + 0.5, s - 1, s - 1);
       }
     }
-    // Highlight the selected tile.
     const sc = selectedTile % SHEETS.tiles.columns;
     const sr = Math.floor(selectedTile / SHEETS.tiles.columns);
     paletteCtx.strokeStyle = COLOR.select;
@@ -85,7 +190,7 @@ export async function startEditor(): Promise<void> {
     const index = row * SHEETS.tiles.columns + col;
     if (index >= 0 && index < TILE_COUNT) {
       selectedTile = index;
-      tool = 'brush';
+      if (tool === 'pan') tool = 'brush';
       drawPalette();
       syncTools();
       setStatus(`Selected tile ${index}`);
@@ -94,117 +199,177 @@ export async function startEditor(): Promise<void> {
 
   // -------------------------------------------------------------------- map
   const map = ui.mapCanvas;
-  const cell = CELL;
-  map.width = level.columns * cell;
-  map.height = level.rows * cell;
   const mapCtx = map.getContext('2d');
   if (!mapCtx) throw new Error('no 2d context');
+
+  const sizeCanvas = () => {
+    const wrap = map.parentElement;
+    map.width = Math.max(1, wrap?.clientWidth ?? window.innerWidth);
+    map.height = Math.max(1, wrap?.clientHeight ?? window.innerHeight);
+  };
 
   const drawMap = () => {
     mapCtx.imageSmoothingEnabled = false;
     mapCtx.fillStyle = COLOR.background;
     mapCtx.fillRect(0, 0, map.width, map.height);
 
-    for (let row = 0; row < level.rows; row++) {
-      for (let col = 0; col < level.columns; col++) {
-        const index = level.tiles[row]?.[col] ?? -1;
-        if (index < 0) continue;
-        const sx = (index % SHEETS.tiles.columns) * 16;
-        const sy = Math.floor(index / SHEETS.tiles.columns) * 16;
-        mapCtx.drawImage(sheet, sx, sy, 16, 16, col * cell, row * cell, cell, cell);
-      }
-    }
+    const col0 = Math.floor(view.x / CELL);
+    const row0 = Math.floor(view.y / CELL);
+    const cols = Math.ceil(map.width / CELL) + 1;
+    const rows = Math.ceil(map.height / CELL) + 1;
 
-    // Collision overlay + grid.
-    for (let row = 0; row < level.rows; row++) {
-      for (let col = 0; col < level.columns; col++) {
-        if (level.solids[row]?.[col]) {
+    // Tiles + collision overlay.
+    for (let i = 0; i < cols; i++) {
+      for (let j = 0; j < rows; j++) {
+        const col = col0 + i;
+        const row = row0 + j;
+        const sx = col * CELL - view.x;
+        const sy = row * CELL - view.y;
+        const tile = doc.tiles.get(key(col, row));
+        if (tile !== undefined) {
+          const tcol = tile % SHEETS.tiles.columns;
+          const trow = Math.floor(tile / SHEETS.tiles.columns);
+          mapCtx.drawImage(sheet, tcol * 16, trow * 16, 16, 16, sx, sy, CELL, CELL);
+        }
+        if (doc.solids.has(key(col, row))) {
           mapCtx.fillStyle = COLOR.solid;
-          mapCtx.fillRect(col * cell, row * cell, cell, cell);
+          mapCtx.fillRect(sx, sy, CELL, CELL);
         }
       }
     }
-    mapCtx.strokeStyle = COLOR.grid;
+
+    // Grid.
     mapCtx.lineWidth = 1;
-    for (let col = 0; col <= level.columns; col++) {
+    const startX = Math.floor(view.x / CELL) * CELL - view.x;
+    for (let x = startX; x <= map.width; x += CELL) {
+      const worldCol = Math.round((x + view.x) / CELL);
+      mapCtx.strokeStyle = worldCol % 8 === 0 ? COLOR.gridMajor : COLOR.grid;
       mapCtx.beginPath();
-      mapCtx.moveTo(col * cell + 0.5, 0);
-      mapCtx.lineTo(col * cell + 0.5, map.height);
+      mapCtx.moveTo(x + 0.5, 0);
+      mapCtx.lineTo(x + 0.5, map.height);
       mapCtx.stroke();
     }
-    for (let row = 0; row <= level.rows; row++) {
+    const startY = Math.floor(view.y / CELL) * CELL - view.y;
+    for (let y = startY; y <= map.height; y += CELL) {
+      const worldRow = Math.round((y + view.y) / CELL);
+      mapCtx.strokeStyle = worldRow % 8 === 0 ? COLOR.gridMajor : COLOR.grid;
       mapCtx.beginPath();
-      mapCtx.moveTo(0, row * cell + 0.5);
-      mapCtx.lineTo(map.width, row * cell + 0.5);
+      mapCtx.moveTo(0, y + 0.5);
+      mapCtx.lineTo(map.width, y + 0.5);
       mapCtx.stroke();
     }
 
     // Spawn + goal markers.
     mapCtx.fillStyle = COLOR.spawn;
-    mapCtx.fillRect(level.spawn.col * cell, level.spawn.row * cell, cell, cell);
+    mapCtx.fillRect(doc.spawn.col * CELL - view.x, doc.spawn.row * CELL - view.y, CELL, CELL);
     mapCtx.fillStyle = COLOR.goal;
-    mapCtx.fillRect(level.goal.col * cell, level.goal.row * cell, cell, cell);
+    mapCtx.fillRect(doc.goal.col * CELL - view.x, doc.goal.row * CELL - view.y, CELL, CELL);
   };
 
-  const cellFromEvent = (event: PointerEvent): { col: number; row: number } | null => {
+  const tileFromEvent = (event: PointerEvent): { col: number; row: number } => {
     const rect = map.getBoundingClientRect();
-    const x = (event.clientX - rect.left) * (map.width / rect.width);
-    const y = (event.clientY - rect.top) * (map.height / rect.height);
-    const col = Math.floor(x / cell);
-    const row = Math.floor(y / cell);
-    if (col < 0 || row < 0 || col >= level.columns || row >= level.rows) return null;
-    return { col, row };
+    const px = (event.clientX - rect.left) * (map.width / rect.width);
+    const py = (event.clientY - rect.top) * (map.height / rect.height);
+    return {
+      col: Math.floor((view.x + px) / CELL),
+      row: Math.floor((view.y + py) / CELL),
+    };
   };
 
   const apply = (col: number, row: number) => {
-    const tileRow = level.tiles[row];
-    const solidRow = level.solids[row];
-    if (!tileRow || !solidRow) return;
-
     switch (tool) {
-      case 'brush':
-        tileRow[col] = selectedTile;
-        solidRow[col] = SOLID_TILE_HINTS.has(selectedTile);
+      case 'brush': {
+        const k = key(col, row);
+        doc.tiles.set(k, selectedTile);
+        if (SOLID_TILE_HINTS.has(selectedTile)) doc.solids.add(k);
+        else doc.solids.delete(k);
         break;
-      case 'erase':
-        tileRow[col] = -1;
-        solidRow[col] = false;
+      }
+      case 'erase': {
+        const k = key(col, row);
+        doc.tiles.delete(k);
+        doc.solids.delete(k);
         break;
-      case 'solid':
-        solidRow[col] = !solidRow[col];
+      }
+      case 'solid': {
+        const k = key(col, row);
+        if (doc.solids.has(k)) doc.solids.delete(k);
+        else doc.solids.add(k);
         break;
+      }
       case 'spawn':
-        level.spawn = { col, row };
+        doc.spawn = { col, row };
         break;
       case 'goal':
-        level.goal = { col, row };
+        doc.goal = { col, row };
+        break;
+      case 'pan':
         break;
     }
     drawMap();
   };
 
+  const clampView = () => {
+    view.x = Math.max(0, view.x);
+    view.y = Math.max(0, view.y);
+  };
+
+  const centerOnContent = () => {
+    const b = docBounds(doc);
+    view.x = Math.max(0, b.minC * CELL - CELL * 2);
+    view.y = Math.max(0, b.minR * CELL - CELL * 2);
+    drawMap();
+  };
+
   map.addEventListener('pointerdown', (event) => {
-    painting = true;
     map.setPointerCapture(event.pointerId);
-    const cellPos = cellFromEvent(event);
-    if (cellPos) apply(cellPos.col, cellPos.row);
-  });
-  map.addEventListener('pointermove', (event) => {
-    const cellPos = cellFromEvent(event);
-    if (cellPos) {
-      setStatus(`col ${cellPos.col}, row ${cellPos.row}  ·  tile ${level.tiles[cellPos.row]?.[cellPos.col] ?? -1}`);
-    } else {
-      setStatus('');
+    lastPointer = { x: event.clientX, y: event.clientY };
+    const wantsPan = tool === 'pan' || event.button === 1;
+    if (wantsPan) {
+      panning = true;
+      return;
     }
-    if (painting && cellPos) apply(cellPos.col, cellPos.row);
+    painting = true;
+    const cell = tileFromEvent(event);
+    apply(cell.col, cell.row);
   });
-  map.addEventListener('pointerup', (event) => {
+
+  map.addEventListener('pointermove', (event) => {
+    const cell = tileFromEvent(event);
+    setStatus(`col ${cell.col}, row ${cell.row}`);
+
+    if (panning) {
+      view.x -= event.clientX - lastPointer.x;
+      view.y -= event.clientY - lastPointer.y;
+      lastPointer = { x: event.clientX, y: event.clientY };
+      clampView();
+      drawMap();
+      return;
+    }
+    if (painting) apply(cell.col, cell.row);
+  });
+
+  const endPointer = (event: PointerEvent) => {
     painting = false;
+    panning = false;
     if (map.hasPointerCapture(event.pointerId)) map.releasePointerCapture(event.pointerId);
-  });
-  map.addEventListener('pointerleave', () => {
-    painting = false;
-  });
+  };
+  map.addEventListener('pointerup', endPointer);
+  map.addEventListener('pointercancel', endPointer);
+
+  map.addEventListener(
+    'wheel',
+    (event) => {
+      event.preventDefault();
+      const dx = event.shiftKey ? event.deltaY : event.deltaX;
+      const dy = event.shiftKey ? 0 : event.deltaY;
+      view.x += dx;
+      view.y += dy;
+      clampView();
+      drawMap();
+    },
+    { passive: false },
+  );
 
   // ------------------------------------------------------------------ tools
   function syncTools() {
@@ -221,10 +386,11 @@ export async function startEditor(): Promise<void> {
   }
 
   ui.saveButton.addEventListener('click', async () => {
+    const level = docToLevel(doc);
     setStatus('Saving…');
     const ok = await saveLevel(level);
     if (ok) {
-      setStatus(`Saved to public/levels/level1.json at ${new Date().toLocaleTimeString()}`);
+      setStatus(`Saved ${level.columns}×${level.rows} tiles (cropped) to level1.json`);
     } else {
       downloadJson(level);
       setStatus('Dev server not reachable — downloaded level1.json instead');
@@ -233,8 +399,8 @@ export async function startEditor(): Promise<void> {
 
   ui.reloadButton.addEventListener('click', async () => {
     try {
-      level = await loadLevel();
-      redrawAll();
+      doc = docFromLevel(await loadLevel());
+      centerOnContent();
       setStatus('Reloaded from disk');
     } catch {
       setStatus('Reload failed');
@@ -242,21 +408,30 @@ export async function startEditor(): Promise<void> {
   });
 
   ui.clearButton.addEventListener('click', () => {
-    level = createEmptyLevel(level.columns, level.rows);
-    redrawAll();
+    doc = emptyDoc();
+    view.x = 0;
+    view.y = 0;
+    drawMap();
     setStatus('Cleared');
   });
 
-  function redrawAll() {
-    map.width = level.columns * cell;
-    map.height = level.rows * cell;
-    drawMap();
-  }
+  ui.fitButton.addEventListener('click', () => {
+    centerOnContent();
+    setStatus('Centred on content');
+  });
 
+  const onResize = () => {
+    sizeCanvas();
+    drawMap();
+  };
+  window.addEventListener('resize', onResize);
+
+  sizeCanvas();
   drawPalette();
   drawMap();
   syncTools();
-  setStatus('Ready');
+  centerOnContent();
+  setStatus('Pan with the wheel or middle-drag. Save crops to the painted bounds.');
 }
 
 /** Load the tilesheet as a plain <img> for canvas drawing. */
@@ -291,6 +466,7 @@ interface EditorDom {
   saveButton: HTMLButtonElement;
   reloadButton: HTMLButtonElement;
   clearButton: HTMLButtonElement;
+  fitButton: HTMLButtonElement;
 }
 
 /** Build the editor DOM from scratch so the game page stays untouched. */
@@ -304,6 +480,7 @@ function buildDom(): EditorDom {
       <div class="ed-actions">
         <button id="ed-save">Save</button>
         <button id="ed-reload">Reload</button>
+        <button id="ed-fit">Fit</button>
         <button id="ed-clear">Clear</button>
       </div>
     </header>
@@ -318,9 +495,11 @@ function buildDom(): EditorDom {
           <button data-tool="solid">Solid</button>
           <button data-tool="spawn">Spawn</button>
           <button data-tool="goal">Goal</button>
+          <button data-tool="pan">Pan</button>
         </div>
         <p class="ed-hint">Red outline = tile collides by default.<br>
-          Paint first, then Save.</p>
+          The grid is infinite — pan with the wheel or middle-drag.<br>
+          Save crops the map to what you painted.</p>
       </aside>
       <main class="ed-canvas-wrap">
         <canvas id="ed-map"></canvas>
@@ -333,7 +512,7 @@ function buildDom(): EditorDom {
   const style = document.createElement('style');
   style.textContent = `
     body.editor-mode { margin: 0; background: #060a12; color: #e6edf3;
-      font: 14px/1.4 system-ui, sans-serif; }
+      font: 14px/1.4 system-ui, sans-serif; overflow: hidden; }
     body.editor-mode #shell { display: none; }
     #editor { display: flex; flex-direction: column; height: 100vh; }
     .ed-header { display: flex; align-items: center; justify-content: space-between;
@@ -341,7 +520,7 @@ function buildDom(): EditorDom {
     .ed-header h1 { font-size: 16px; margin: 0; }
     .ed-body { flex: 1; display: flex; min-height: 0; }
     .ed-side { width: 300px; padding: 12px; overflow: auto; background: #0d1626;
-      border-right: 1px solid #23324d; }
+      border-right: 1px solid #23324d; flex: none; }
     .ed-side h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
       color: #8aa0c0; margin: 12px 0 6px; }
     #ed-palette { width: 100%; image-rendering: pixelated; border: 1px solid #23324d;
@@ -352,8 +531,9 @@ function buildDom(): EditorDom {
     button:hover { background: #24395c; }
     button.active { background: #2f9e4f; border-color: #3fc46a; }
     .ed-hint { color: #8aa0c0; font-size: 12px; }
-    .ed-canvas-wrap { flex: 1; overflow: auto; padding: 12px; }
-    #ed-map { image-rendering: pixelated; cursor: crosshair; border: 1px solid #23324d; }
+    .ed-canvas-wrap { flex: 1; min-width: 0; position: relative; overflow: hidden; }
+    #ed-map { position: absolute; inset: 0; width: 100%; height: 100%;
+      image-rendering: pixelated; cursor: crosshair; touch-action: none; }
     .ed-footer { padding: 6px 16px; background: #111a2b; border-top: 1px solid #23324d;
       color: #8aa0c0; font-size: 12px; min-height: 18px; }
   `;
@@ -366,5 +546,6 @@ function buildDom(): EditorDom {
     saveButton: root.querySelector<HTMLButtonElement>('#ed-save')!,
     reloadButton: root.querySelector<HTMLButtonElement>('#ed-reload')!,
     clearButton: root.querySelector<HTMLButtonElement>('#ed-clear')!,
+    fitButton: root.querySelector<HTMLButtonElement>('#ed-fit')!,
   };
 }
