@@ -1,231 +1,179 @@
 import * as ex from 'excalibur';
 import { CONFIG } from './config';
-import {
-  type ArcherInput,
-  type ArcherState,
-  arrowHits,
-  createArcherState,
-  stepArcher,
-} from './archer';
+import { SHEETS, type GameAssets } from './assets';
+import { type Level, levelPixelSize } from './level';
+import { PlayerActor } from './PlayerActor';
 
-interface Target {
+interface Effect {
   actor: ex.Actor;
-  hit: boolean;
+  ttl: number;
 }
 
 /**
- * The single playable room: an archer on a strip of ground, a few targets,
- * and a growing score.
+ * The playable scene: draws the painted tilemap, spawns the player, follows
+ * them with the camera and fires the sound + slash effects.
  */
 export class GameScene extends ex.Scene {
-  private archer!: ArcherState;
-  private playerActor!: ex.Actor;
-  private arrows: ex.Actor[] = [];
-  private targets: Target[] = [];
-  private score = 0;
-  private scoreEl: HTMLElement | null = null;
-  private pointerShoot = false;
-  private prevJump = false;
+  private readonly level: Level;
+  private readonly assets: GameAssets;
+  private player!: PlayerActor;
+  private effects: Effect[] = [];
+  private musicStarted = false;
+  private won = false;
+
+  constructor(level: Level, assets: GameAssets) {
+    super();
+    this.level = level;
+    this.assets = assets;
+  }
 
   override onInitialize(): void {
-    this.scoreEl = document.getElementById('score');
     this.buildBackground();
-    this.buildGround();
-    this.buildPlayer();
-    this.buildTargets();
+    this.add(this.buildLevelGraphic());
 
-    this.engine.input.pointers.on('down', () => {
-      this.pointerShoot = true;
+    this.player = new PlayerActor(this.level, this.assets);
+    this.player.onJump = () => void this.assets.sounds.jump.play();
+    this.player.onAttack = (x, y, facing) => {
+      this.spawnSwoosh(x, y, facing);
+      void this.assets.sounds.sword.play();
+    };
+    this.add(this.player);
+
+    this.setupCamera();
+    this.unlockAudioOnFirstInput();
+    this.engine.input.keyboard.on('press', (event) => {
+      if (event.key === ex.Keys.R) {
+        this.player.respawn();
+        this.won = false;
+        this.setMessage('');
+      }
     });
+    this.setMessage('');
   }
 
   private buildBackground(): void {
-    const { VIEW } = CONFIG;
-    const sky = new ex.Actor({
-      pos: ex.vec(VIEW.width / 2, VIEW.height / 2),
-      width: VIEW.width,
-      height: VIEW.height,
+    const { width, height } = levelPixelSize(this.level);
+    const background = new ex.Actor({
+      pos: ex.vec(0, 0),
+      anchor: ex.vec(0, 0),
+      width,
+      height,
       z: -10,
     });
-    sky.graphics.use(
-      new ex.Rectangle({
-        width: VIEW.width,
-        height: VIEW.height,
-        color: ex.Color.fromHex('#0a150d'),
-      }),
+    background.graphics.use(
+      new ex.Rectangle({ width, height, color: ex.Color.fromHex('#0b1220') }),
     );
-    this.add(sky);
+    this.add(background);
   }
 
-  private buildGround(): void {
-    const { WORLD, VIEW } = CONFIG;
-    const ground = new ex.Actor({
-      pos: ex.vec(VIEW.width / 2, WORLD.groundY + 40),
-      width: VIEW.width,
-      height: 80,
-      z: -5,
-    });
-    ground.graphics.use(
-      new ex.Rectangle({
-        width: VIEW.width,
-        height: 80,
-        color: ex.Color.fromHex('#1c4d2a'),
-      }),
-    );
-    this.add(ground);
-  }
+  /**
+   * Bake every painted tile into one canvas, then draw that as a single
+   * sprite. Cheaper and simpler than one actor per tile.
+   */
+  private buildLevelGraphic(): ex.Actor {
+    const { width, height } = levelPixelSize(this.level);
+    const tile = this.level.tileSize;
+    const sheet = this.assets.images.tiles.data;
+    const sheetColumns = SHEETS.tiles.columns;
 
-  private buildPlayer(): void {
-    this.archer = createArcherState();
-    this.playerActor = new ex.Actor({
-      pos: ex.vec(this.archer.x, this.archer.y + CONFIG.PLAYER.height / 2),
-      width: CONFIG.PLAYER.width,
-      height: CONFIG.PLAYER.height,
-      z: 5,
-    });
-    this.playerActor.graphics.use(
-      new ex.Rectangle({
-        width: CONFIG.PLAYER.width,
-        height: CONFIG.PLAYER.height,
-        color: ex.Color.fromHex('#2f9e4f'),
-      }),
-    );
-    this.add(this.playerActor);
-  }
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('2D canvas not available');
+    ctx.imageSmoothingEnabled = false;
 
-  private buildTargets(): void {
-    const { TARGET } = CONFIG;
-    for (const x of [620, 980, 1340]) {
-      const actor = new ex.Actor({
-        pos: ex.vec(x, CONFIG.WORLD.groundY - TARGET.height / 2),
-        width: TARGET.width,
-        height: TARGET.height,
-        z: 4,
-      });
-      actor.graphics.use(
-        new ex.Rectangle({
-          width: TARGET.width,
-          height: TARGET.height,
-          color: ex.Color.fromHex('#c9a227'),
-        }),
-      );
-      this.add(actor);
-      this.targets.push({ actor, hit: false });
+    for (let row = 0; row < this.level.rows; row++) {
+      for (let col = 0; col < this.level.columns; col++) {
+        const index = this.level.tiles[row]?.[col] ?? -1;
+        if (index < 0) continue;
+        const sx = (index % sheetColumns) * tile;
+        const sy = Math.floor(index / sheetColumns) * tile;
+        ctx.drawImage(sheet, sx, sy, tile, tile, col * tile, row * tile, tile, tile);
+      }
     }
+
+    const image = ex.ImageSource.fromHtmlCanvasElement(canvas);
+    const sprite = new ex.Sprite({ image, sourceView: { x: 0, y: 0, width, height } });
+    const actor = new ex.Actor({ pos: ex.vec(0, 0), anchor: ex.vec(0, 0), z: 0 });
+    actor.graphics.use(sprite);
+    return actor;
   }
 
-  override onPreUpdate(_engine: ex.Engine, delta: number): void {
-    const kb = this.engine.input.keyboard;
-    const move: -1 | 0 | 1 =
-      kb.isHeld(ex.Keys.Left) || kb.isHeld(ex.Keys.A)
-        ? -1
-        : kb.isHeld(ex.Keys.Right) || kb.isHeld(ex.Keys.D)
-          ? 1
-          : 0;
-    const jump = kb.isHeld(ex.Keys.Space) || kb.isHeld(ex.Keys.Up);
-    const shootKey = kb.isHeld(ex.Keys.J);
-    const shoot = shootKey || this.pointerShoot;
-    this.pointerShoot = false;
+  private setupCamera(): void {
+    const { width, height } = levelPixelSize(this.level);
+    this.camera.zoom = CONFIG.CAMERA.zoom;
+    this.camera.strategy.limitCameraBounds(new ex.BoundingBox(0, 0, width, height));
+    this.camera.strategy.lockToActor(this.player);
+  }
 
-    const input: ArcherInput = {
-      move,
-      jump,
-      jumpPressed: jump && !this.prevJump,
-      shoot,
+  private unlockAudioOnFirstInput(): void {
+    const start = () => {
+      if (this.musicStarted) return;
+      this.musicStarted = true;
+      void this.assets.sounds.music.play();
     };
-    this.prevJump = jump;
-
-    const dt = Math.min(delta / 1000, 1 / 30);
-    const result = stepArcher(this.archer, input, dt);
-
-    this.playerActor.pos.setTo(
-      this.archer.x,
-      this.archer.y + CONFIG.PLAYER.height / 2,
-    );
-
-    if (result.fired && result.muzzle) {
-      this.spawnArrow(result.muzzle, this.archer.facing);
-    }
-
-    this.updateArrows(dt);
+    this.engine.input.keyboard.on('press', start);
+    this.engine.input.pointers.on('down', start);
   }
 
-  private spawnArrow(pos: { x: number; y: number }, facing: 1 | -1): void {
-    const { ARROW } = CONFIG;
+  /** The 4-frame slash effect, thrown out in front of the player. */
+  private spawnSwoosh(x: number, y: number, facing: 1 | -1): void {
     const actor = new ex.Actor({
-      pos: ex.vec(pos.x, pos.y),
-      width: ARROW.width,
-      height: ARROW.height,
-      z: 6,
+      pos: ex.vec(x + facing * 10, y - CONFIG.PLAYER.height * 0.6),
+      anchor: ex.vec(0.5, 0.5),
+      z: 11,
     });
-    actor.graphics.use(
-      new ex.Rectangle({
-        width: ARROW.width,
-        height: ARROW.height,
-        color: ex.Color.fromHex('#e8dfb8'),
-      }),
-    );
-    actor.vel = ex.vec(facing * ARROW.speed, 0);
-    actor.on('exitviewport', () => actor.kill());
+    this.assets.swooshFrames.reset();
+    this.assets.swooshFrames.play();
+    actor.graphics.use(this.assets.swooshFrames);
+    actor.graphics.flipHorizontal = facing < 0;
     this.add(actor);
-    this.arrows.push(actor);
+    this.effects.push({ actor, ttl: CONFIG.COMBAT.attackMs + 40 });
   }
 
-  private updateArrows(dt: number): void {
-    for (const arrow of this.arrows) {
-      arrow.pos.x += arrow.vel.x * dt;
-      if (arrow.pos.x < 0 || arrow.pos.x > CONFIG.WORLD.width) {
-        arrow.kill();
-        continue;
-      }
-      for (const target of this.targets) {
-        if (target.hit) continue;
-        if (arrowHits(arrow.pos, {
-          x: target.actor.pos.x,
-          y: target.actor.pos.y,
-          width: CONFIG.TARGET.width,
-          height: CONFIG.TARGET.height,
-        })) {
-          target.hit = true;
-          target.actor.graphics.use(
-            new ex.Rectangle({
-              width: CONFIG.TARGET.width,
-              height: CONFIG.TARGET.height,
-              color: ex.Color.fromHex('#3fc46a'),
-            }),
-          );
-          arrow.kill();
-          this.score += CONFIG.TARGET.points;
-          this.renderScore();
-          break;
-        }
-      }
+  override onPostUpdate(_engine: ex.Engine, delta: number): void {
+    for (const effect of this.effects) {
+      effect.ttl -= delta;
+      if (effect.ttl <= 0) effect.actor.kill();
     }
-    this.arrows = this.arrows.filter((a) => !a.isKilled());
+    this.effects = this.effects.filter((effect) => !effect.actor.isKilled());
+
+    // Fell into a pit.
+    const worldHeight = this.level.rows * this.level.tileSize;
+    if (this.player.state.y > worldHeight + 32) {
+      this.player.respawn();
+      this.won = false;
+      this.setMessage('Back to the start!');
+    }
+
+    this.checkGoal();
   }
 
-  private renderScore(): void {
-    if (this.scoreEl) {
-      this.scoreEl.textContent = `SCORE ${this.score}`;
+  private checkGoal(): void {
+    if (this.won) return;
+    const tile = this.level.tileSize;
+    const half = CONFIG.PLAYER.width / 2;
+    const left = this.player.state.x - half;
+    const right = this.player.state.x + half;
+    const top = this.player.state.y - CONFIG.PLAYER.height;
+    const bottom = this.player.state.y;
+
+    const goalLeft = this.level.goal.col * tile;
+    const goalRight = goalLeft + tile;
+    const goalTop = this.level.goal.row * tile;
+    const goalBottom = goalTop + tile;
+
+    const hit =
+      right > goalLeft && left < goalRight && bottom > goalTop && top < goalBottom;
+    if (hit) {
+      this.won = true;
+      this.setMessage('You found the chest! (R to restart)');
     }
   }
 
-  /** Reset the room: clear arrows, revive targets, zero the score. */
-  resetRoom(): void {
-    for (const arrow of this.arrows) arrow.kill();
-    this.arrows = [];
-    for (const target of this.targets) {
-      target.hit = false;
-      target.actor.graphics.use(
-        new ex.Rectangle({
-          width: CONFIG.TARGET.width,
-          height: CONFIG.TARGET.height,
-          color: ex.Color.fromHex('#c9a227'),
-        }),
-      );
-    }
-    this.archer = createArcherState();
-    this.score = 0;
-    this.renderScore();
+  private setMessage(text: string): void {
+    const el = document.getElementById('hud-message');
+    if (el) el.textContent = text;
   }
 }
