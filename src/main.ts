@@ -4,6 +4,7 @@ import { loadAssets, type GameAssets } from './game/assets';
 import { type Level, createEmptyLevel } from './game/level';
 import { loadLevel } from './game/levelFile';
 import { GameScene } from './game/GameScene';
+import { startAudioOnFirstGesture } from './game/audio';
 
 /**
  * Entry point. Appending `/dev` to the URL opens the level editor instead of
@@ -33,9 +34,13 @@ async function startGame(): Promise<void> {
     width: CONFIG.VIEW.width,
     height: CONFIG.VIEW.height,
     canvasElementId: 'game',
-    displayMode: ex.DisplayMode.Fixed,
+    // Fill the window at the window's own resolution (1:1, crisp), then pick
+    // an integer camera zoom in GameScene so tiles map to whole pixels.
+    displayMode: ex.DisplayMode.FillScreen,
     backgroundColor: ex.Color.fromHex('#0b1220'),
     pixelArt: true,
+    antialiasing: false,
+    snapToPixel: true,
     physics: false,
     suppressPlayButton: true,
   });
@@ -45,38 +50,16 @@ async function startGame(): Promise<void> {
   await game.start();
   void game.goToScene('game');
 
-  fitCanvasToWindow(game);
   setupFullscreen(game);
+
+  // Browsers block audio until a real user gesture: unlock it (and start the
+  // music loop) on the first key press or click.
+  startAudioOnFirstGesture(() => {
+    void assets.sounds.music.play();
+  });
 
   // Handy console handle, mirroring the reference project.
   (window as unknown as { __hood?: unknown }).__hood = { game, scene };
-}
-
-/**
- * Scale the canvas to the window by a whole-number factor so pixel art stays
- * crisp (no blurry fractional scaling). Leftover space is left as a border.
- */
-function fitCanvasToWindow(game: ex.Engine): void {
-  const apply = () => {
-    const scale = Math.max(
-      1,
-      Math.floor(
-        Math.min(
-          window.innerWidth / CONFIG.VIEW.width,
-          window.innerHeight / CONFIG.VIEW.height,
-        ),
-      ),
-    );
-    game.canvas.style.width = `${CONFIG.VIEW.width * scale}px`;
-    game.canvas.style.height = `${CONFIG.VIEW.height * scale}px`;
-  };
-
-  apply();
-  window.addEventListener('resize', () => {
-    apply();
-    // Excalibur may re-apply its own canvas size on resize; run again after.
-    requestAnimationFrame(apply);
-  });
 }
 
 /** Toggle real browser fullscreen (button + the F key). */

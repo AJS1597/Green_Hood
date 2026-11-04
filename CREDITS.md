@@ -22,7 +22,8 @@ http://blog-buch.rhcloud.com
 https://opengameart.org/content/swishes-sound-pack
 
 - `sfx-sword.wav` (from `swish-7.wav`)
-- `sfx-jump.wav` (from `swish-4.wav`)
+
+**Jump sound** — `sfx_Jump.wav` (added by the project owner)
 
 **Dark Rooms and Scary Things** — isaiah658, CC0
 https://opengameart.org/content/dark-rooms-and-scary-things

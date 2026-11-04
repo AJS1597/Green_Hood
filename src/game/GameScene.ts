@@ -1,24 +1,30 @@
 import * as ex from 'excalibur';
 import { CONFIG } from './config';
 import { SHEETS, type GameAssets } from './assets';
-import { type Level, levelPixelSize } from './level';
+import { type Level, isSolid, levelPixelSize } from './level';
 import { PlayerActor } from './PlayerActor';
+import { KingActor } from './KingActor';
+import { playSound } from './audio';
 
 interface Effect {
   actor: ex.Actor;
   ttl: number;
 }
 
+/** Columns where kings are placed (on the first solid ground below them). */
+const KING_SPAWNS = [15, 50];
+
 /**
- * The playable scene: draws the painted tilemap, spawns the player, follows
- * them with the camera and fires the sound + slash effects.
+ * The playable scene: draws the painted tilemap, spawns the player and the
+ * King enemies, follows the player with the camera and fires the sound and
+ * slash effects.
  */
 export class GameScene extends ex.Scene {
   private readonly level: Level;
   private readonly assets: GameAssets;
   private player!: PlayerActor;
+  private kings: KingActor[] = [];
   private effects: Effect[] = [];
-  private musicStarted = false;
   private won = false;
 
   constructor(level: Level, assets: GameAssets) {
@@ -32,23 +38,46 @@ export class GameScene extends ex.Scene {
     this.add(this.buildLevelGraphic());
 
     this.player = new PlayerActor(this.level, this.assets);
-    this.player.onJump = () => void this.assets.sounds.jump.play();
+    this.player.onJump = () => playSound(this.assets.sounds.jump);
     this.player.onAttack = (x, y, facing) => {
       this.spawnSwoosh(x, y, facing);
-      void this.assets.sounds.sword.play();
+      playSound(this.assets.sounds.sword);
+      this.resolveSwordHits();
     };
     this.add(this.player);
 
-    this.setupCamera();
-    this.unlockAudioOnFirstInput();
+    this.spawnKing(KING_SPAWNS[0] ?? 15);
+    this.spawnKing(KING_SPAWNS[1] ?? 50);
+
+    this.camera.strategy.limitCameraBounds(
+      new ex.BoundingBox(0, 0, levelPixelSize(this.level).width, levelPixelSize(this.level).height),
+    );
+    this.camera.strategy.lockToActor(this.player);
+    this.applyZoom();
+
+    window.addEventListener('resize', () => this.applyZoom());
+
     this.engine.input.keyboard.on('press', (event) => {
       if (event.key === ex.Keys.R) {
-        this.player.respawn();
-        this.won = false;
-        this.setMessage('');
+        this.restart();
       }
     });
+
     this.setMessage('');
+  }
+
+  override onActivate(): void {
+    this.applyZoom();
+  }
+
+  /**
+   * Pick an integer zoom from the window height so the world always maps to
+   * whole screen pixels (crisp), while filling the window.
+   */
+  private applyZoom(): void {
+    const { targetViewHeight, minZoom, maxZoom } = CONFIG.CAMERA;
+    const zoom = Math.round(window.innerHeight / targetViewHeight);
+    this.camera.zoom = Math.max(minZoom, Math.min(maxZoom, zoom));
   }
 
   private buildBackground(): void {
@@ -100,21 +129,43 @@ export class GameScene extends ex.Scene {
     return actor;
   }
 
-  private setupCamera(): void {
-    const { width, height } = levelPixelSize(this.level);
-    this.camera.zoom = CONFIG.CAMERA.zoom;
-    this.camera.strategy.limitCameraBounds(new ex.BoundingBox(0, 0, width, height));
-    this.camera.strategy.lockToActor(this.player);
+  /** Place a king on the first solid tile in the given column. */
+  private spawnKing(col: number): void {
+    for (let row = 0; row < this.level.rows; row++) {
+      if (isSolid(this.level, col, row)) {
+        const king = new KingActor(this.level, col, row, this.assets);
+        this.kings.push(king);
+        this.add(king);
+        return;
+      }
+    }
   }
 
-  private unlockAudioOnFirstInput(): void {
-    const start = () => {
-      if (this.musicStarted) return;
-      this.musicStarted = true;
-      void this.assets.sounds.music.play();
-    };
-    this.engine.input.keyboard.on('press', start);
-    this.engine.input.pointers.on('down', start);
+  /** Does the player's sword overlap this king right now? */
+  private swordTouches(king: KingActor): boolean {
+    if (king.isDying) return false;
+    const reach = CONFIG.COMBAT.reach;
+    const { x, y, facing } = this.player.state;
+    const swordLeft = facing > 0 ? x : x - reach;
+    const swordRight = facing > 0 ? x + reach : x;
+    const swordTop = y - CONFIG.PLAYER.height;
+    const swordBottom = y;
+
+    const halfW = CONFIG.ENEMY.width / 2;
+    const kLeft = king.state.x - halfW;
+    const kRight = king.state.x + halfW;
+    const kTop = king.state.y - CONFIG.ENEMY.height;
+    const kBottom = king.state.y;
+
+    return swordRight > kLeft && swordLeft < kRight && swordBottom > kTop && swordTop < kBottom;
+  }
+
+  private resolveSwordHits(): void {
+    for (const king of this.kings) {
+      if (this.swordTouches(king)) {
+        king.cutDown();
+      }
+    }
   }
 
   /** The 4-frame slash effect, thrown out in front of the player. */
@@ -150,6 +201,16 @@ export class GameScene extends ex.Scene {
     this.checkGoal();
   }
 
+  private restart(): void {
+    this.player.respawn();
+    for (const king of this.kings) king.kill();
+    this.kings = [];
+    this.spawnKing(KING_SPAWNS[0] ?? 15);
+    this.spawnKing(KING_SPAWNS[1] ?? 50);
+    this.won = false;
+    this.setMessage('');
+  }
+
   private checkGoal(): void {
     if (this.won) return;
     const tile = this.level.tileSize;
@@ -164,8 +225,7 @@ export class GameScene extends ex.Scene {
     const goalTop = this.level.goal.row * tile;
     const goalBottom = goalTop + tile;
 
-    const hit =
-      right > goalLeft && left < goalRight && bottom > goalTop && top < goalBottom;
+    const hit = right > goalLeft && left < goalRight && bottom > goalTop && top < goalBottom;
     if (hit) {
       this.won = true;
       this.setMessage('You found the chest! (R to restart)');

@@ -7,7 +7,12 @@ export const CONFIG = {
   TILE: 16,
 
   /** The camera zooms in so 16px tiles read clearly on screen. */
-  CAMERA: { zoom: 2 },
+  CAMERA: {
+    /** Preferred visible world height in pixels; zoom is derived from this. */
+    targetViewHeight: 270,
+    minZoom: 2,
+    maxZoom: 8,
+  },
 
   PHYSICS: {
     gravity: 1500, // px/s^2
@@ -39,6 +44,18 @@ export const CONFIG = {
     attackMs: 260,
     /** Cooldown before another swing is allowed, in ms. */
     attackCooldownMs: 340,
+    /** How far in front of the player the sword reaches, in pixels. */
+    reach: 24,
+  },
+
+  ENEMY: {
+    /** Collision box of the king, anchored at the feet. */
+    width: 12,
+    height: 22,
+    /** Patrol speed, in px/s. */
+    speed: 42,
+    /** How long the red hurt flash lasts before the king is removed, in ms. */
+    deathMs: 500,
   },
 
   AUDIO: {

@@ -17,7 +17,7 @@ export const AssetPaths = {
   swoosh: `${ASSETS}swoosh.png`,
   music: `${ASSETS}music.ogg`,
   sfxSword: `${ASSETS}sfx-sword.wav`,
-  sfxJump: `${ASSETS}sfx-jump.wav`,
+  sfxJump: `${ASSETS}sfx_Jump.wav`,
 } as const;
 
 /**
@@ -71,3 +71,12 @@ export const PLAYER_FRAMES = {
 
 /** The green character is on row 2 of the characters spritesheet. */
 export const PLAYER_ROW = 2;
+
+/** The king (an enemy) is on row 1 of the characters spritesheet. */
+export const KING_ROW = 1;
+
+/** Animation columns for the king, following the same sheet layout. */
+export const KING_FRAMES = {
+  walk: [0, 1, 2, 3],
+  hurt: [8, 9],
+} as const;

@@ -2,6 +2,8 @@ import * as ex from 'excalibur';
 import {
   AssetPaths,
   GOAL_TILE,
+  KING_FRAMES,
+  KING_ROW,
   LADDER_TILES,
   PLAYER_FRAMES,
   PLAYER_ROW,
@@ -14,6 +16,8 @@ import {
 export {
   AssetPaths,
   GOAL_TILE,
+  KING_FRAMES,
+  KING_ROW,
   LADDER_TILES,
   PLAYER_FRAMES,
   PLAYER_ROW,
@@ -48,6 +52,13 @@ export interface PlayerAnimations {
   attack: ex.Animation;
 }
 
+export interface KingAnimations {
+  /** Patrol cycle. */
+  walk: ex.Animation;
+  /** Red-tinted frames shown when the king is cut down. */
+  hurt: ex.Animation;
+}
+
 export interface GameSounds {
   music: ex.Sound;
   sword: ex.Sound;
@@ -67,6 +78,7 @@ export interface GameAssets {
   swooshFrames: ex.Animation;
   sounds: GameSounds;
   animations: PlayerAnimations;
+  kingAnimations: KingAnimations;
 }
 
 /** Load an image with crisp (nearest-neighbour) scaling for pixel art. */
@@ -126,6 +138,31 @@ export function createSwooshAnimation(sheet: ex.SpriteSheet): ex.Animation {
   });
 }
 
+/** Build the king's patrol and red hurt animations from the characters sheet. */
+export function createKingAnimations(sheet: ex.SpriteSheet): KingAnimations {
+  const frame = (col: number) => ({ graphic: sprite(sheet, col, KING_ROW) });
+
+  // Clone the hurt frames so the red tint does not leak onto other graphics.
+  const hurtFrames = KING_FRAMES.hurt.map((col) => {
+    const graphic = sprite(sheet, col, KING_ROW).clone();
+    graphic.tint = ex.Color.Red;
+    return { graphic };
+  });
+
+  return {
+    walk: new ex.Animation({
+      frames: KING_FRAMES.walk.map(frame),
+      frameDuration: 140,
+      strategy: ex.AnimationStrategy.Loop,
+    }),
+    hurt: new ex.Animation({
+      frames: hurtFrames,
+      frameDuration: 120,
+      strategy: ex.AnimationStrategy.Loop,
+    }),
+  };
+}
+
 /** Load every image and sound the game needs. */
 export async function loadAssets(): Promise<GameAssets> {
   const [charactersImage, tilesImage, swooshImage] = await Promise.all([
@@ -147,6 +184,10 @@ export async function loadAssets(): Promise<GameAssets> {
   const jump = new ex.Sound(AssetPaths.sfxJump);
   jump.volume = 0.8;
 
+  // Excalibur refuses to play a Sound until it is loaded, so decode them now.
+  // allSettled so a single bad file can't stop the game from starting.
+  await Promise.allSettled([music.load(), sword.load(), jump.load()]);
+
   return {
     images: { characters: charactersImage, tiles: tilesImage, swoosh: swooshImage },
     characters,
@@ -155,5 +196,6 @@ export async function loadAssets(): Promise<GameAssets> {
     swooshFrames: createSwooshAnimation(swoosh),
     sounds: { music, sword, jump },
     animations: createPlayerAnimations(characters),
+    kingAnimations: createKingAnimations(characters),
   };
 }

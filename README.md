@@ -19,6 +19,13 @@ pnpm build       # production build in dist/
 pnpm preview
 ```
 
+## What's here
+
+A single room with an archer on a strip of ground, some platforms, a ladder and
+a chest goal. Two **King** enemies patrol the ground like Koopas — they walk
+back and forth, turn at walls and platform edges, and turn red and die when hit
+by a sword swing. `R` resets the room.
+
 ## Controls
 
 | Action | Keys |
@@ -27,6 +34,7 @@ pnpm preview
 | Climb ladders | `↑` / `↓` |
 | Jump | `Z` (or `Space`) |
 | Swing sword | `X` |
+| Fullscreen | `F` |
 | Restart | `R` |
 
 ## Where the asset-loading code lives
@@ -49,7 +57,7 @@ All in `public/assets/` (Vite serves `public/` at the site root, so the runtime 
 | `swoosh.png` | 4-frame sword-slash effect | 4 × 1 cells of 32×32 |
 | `music.ogg` | looping background music | — |
 | `sfx-sword.wav` | sword swing (`swish-7`) | — |
-| `sfx-jump.wav` | jump (`swish-4`) | — |
+| `sfx_Jump.wav` | jump | — |
 
 Licenses: every one of these is **CC0** (public domain). See `CREDITS.md`.
 
@@ -101,24 +109,28 @@ src/
   game/
     tileset.ts       asset paths, sheet grids, tile indexes   (no engine)
     assets.ts        Excalibur loading: sheets, animations, sounds
+    audio.ts         audio-context unlock + safe sound playback
     config.ts        tunables (gravity, speeds, camera)
     level.ts         LevelData <-> Level, isSolid/isLadder     (no engine)
     levelFile.ts     load/save level1.json
     player.ts        pure movement/jump/ladder/sword physics   (no engine)
+    enemy.ts         pure Koopa-style patrol physics           (no engine)
     PlayerActor.ts   Excalibur actor: input, animation, sprite
-    GameScene.ts     tilemap rendering, camera, sfx, goal
+    KingActor.ts     the King enemy actor (patrol + red death)
+    GameScene.ts     tilemap rendering, camera, enemies, sfx, goal
   editor/editor.ts   the /dev tilemap editor
   main.ts            route to game or editor
-tests/               21 headless tests
+tests/               26 headless tests
 ```
 
 ### Key decisions
 
-- **Pure logic, engine-free.** `player.ts` and `level.ts` import no Excalibur, so jump/ladder/collision feel is replayable in Vitest.
+- **Pure logic, engine-free.** `player.ts`, `enemy.ts` and `level.ts` import no Excalibur, so movement, ladders, patrols and collisions are replayable in Vitest.
 - **One baked canvas for the tilemap.** All painted tiles are drawn once into a canvas and shown as a single sprite.
-- **Crisp integer scaling.** The 960×540 canvas is scaled by whole numbers and centred (`fitCanvasToWindow` in `main.ts`), so pixel art never gets the blurry, uneven look of fractional scaling. Leftover space is the same colour as the game background. `F` (or the button) toggles real browser fullscreen.
+- **Crisp fullscreen.** `DisplayMode.FillScreen` renders the canvas at the window's own resolution (1:1, no stretching), `snapToPixel` keeps sprites on whole pixels, and the camera zoom is an integer chosen from the window height. `F` (or the button) toggles real browser fullscreen.
 - **Custom grid collision**, not engine physics (`physics: false`) — deterministic and testable.
 - **Tiles are data.** The level is a JSON grid, edited visually, not hard-coded in the source.
+- **Audio unlocks on the first gesture.** Browsers block audio until the user interacts; `audio.ts` resumes the context on the first key press/click and queues sounds that arrive before it is ready.
 
 ## Notes: guesses that were wrong (and got fixed)
 
@@ -129,6 +141,8 @@ Since this was built from the art rather than a spec sheet, a few things had to 
 3. **Sprite anchor.** The 32×32 frame has the character's feet near the bottom, so the actor anchor is `(0.5, 1.0)` (bottom-centre), matching the physics which stores the feet position.
 4. **Collision edge.** The first collision resolver used a half-pixel epsilon that missed exact tile boundaries, so the player sank a third of a pixel into floors and walls. A test caught it; the lookup now uses `floor(y / tile)` and clamps exactly.
 5. **Sword sound.** The first build used `swish-1`. Corrected to **`swish-7`** as requested. The audio is 24-bit WAV in the pack, so it is converted to 16-bit for reliable browser decoding.
+6. **Display.** `FitScreenAndFill` scaled the canvas by a fractional factor (e.g. `2560/960 = 2.67×`), which looked blurry. `Fixed` with whole-number scaling was crisp but left borders on a 1440p window. The final setup — `FillScreen` (1:1 buffer) + integer camera zoom + `snapToPixel` — is both crisp and edge-to-edge.
+7. **Sound was silent.** Two causes: the `Sound` objects were never loaded (Excalibur ignores `play()` on an unloaded sound), and the WebAudio context stayed suspended because Excalibur's own unlock only runs from its play button, which this game suppresses. Both fixed in `assets.ts` (preload) and `audio.ts` (unlock on first gesture). The jump file was also renamed to `sfx_Jump.wav`.
 
 ## Credits
 
