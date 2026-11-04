@@ -15,6 +15,8 @@ export interface EnemyState {
   dir: 1 | -1;
   vy: number;
   onGround: boolean;
+  /** Remaining sword hits. */
+  hp: number;
   /** Once false the enemy stops updating (it is dying / dead). */
   alive: boolean;
 }
@@ -29,8 +31,22 @@ export function createEnemyState(col: number, row: number, dir: 1 | -1 = 1): Ene
     dir,
     vy: 0,
     onGround: false,
+    hp: CONFIG.ENEMY.hp,
     alive: true,
   };
+}
+
+/**
+ * Apply one sword hit. Returns true if this hit was the killing blow.
+ */
+export function damageEnemy(state: EnemyState): boolean {
+  if (!state.alive || state.hp <= 0) return false;
+  state.hp -= 1;
+  if (state.hp <= 0) {
+    state.alive = false;
+    return true;
+  }
+  return false;
 }
 
 function rowsOverlapping(state: EnemyState): { top: number; bottom: number } {

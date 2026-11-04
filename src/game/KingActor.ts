@@ -2,14 +2,15 @@ import * as ex from 'excalibur';
 import { CONFIG } from './config';
 import { type GameAssets, type KingAnimations } from './assets';
 import { type Level } from './level';
-import { type EnemyState, createEnemyState, stepEnemy } from './enemy';
+import { type EnemyState, createEnemyState, damageEnemy, stepEnemy } from './enemy';
 
 /** Physics runs on a fixed timestep so feel does not depend on framerate. */
 const STEP_MS = 1000 / 120;
 
 /**
  * A King enemy. Walks back and forth like a Koopa, turning at walls and
- * ledges, and turns red and dies when cut by the player's sword.
+ * ledges. It survives the first two sword hits with a red flash, and turns
+ * fully red and dies on the third.
  */
 export class KingActor extends ex.Actor {
   readonly state: EnemyState;
@@ -17,6 +18,7 @@ export class KingActor extends ex.Actor {
   private readonly animations: KingAnimations;
   private accumulator = 0;
   private deathTimer = 0;
+  private flashTimer = 0;
   private dying = false;
 
   constructor(level: Level, col: number, row: number, assets: GameAssets) {
@@ -38,8 +40,37 @@ export class KingActor extends ex.Actor {
     return this.dying;
   }
 
+  get isFlashing(): boolean {
+    return this.flashTimer > 0;
+  }
+
+  /** True if the king is a valid sword target. */
+  get isVulnerable(): boolean {
+    return !this.dying && this.state.alive && this.flashTimer <= 0;
+  }
+
+  /**
+   * Take one sword swing. Returns true if this was the killing hit. Non-lethal
+   * hits freeze the king briefly and flash it red.
+   */
+  hitBySword(): boolean {
+    if (!this.isVulnerable) return false;
+
+    const killed = damageEnemy(this.state);
+    if (killed) {
+      this.cutDown();
+      return true;
+    }
+
+    this.flashTimer = CONFIG.ENEMY.flashMs;
+    this.animations.hurt.reset();
+    this.animations.hurt.play();
+    this.graphics.use(this.animations.hurt);
+    return false;
+  }
+
   /** Cut down by the sword: flash red, then remove. */
-  cutDown(): void {
+  private cutDown(): void {
     if (this.dying) return;
     this.dying = true;
     this.state.alive = false;
@@ -54,6 +85,13 @@ export class KingActor extends ex.Actor {
       this.deathTimer -= delta;
       this.graphics.opacity = Math.max(0, this.deathTimer / CONFIG.ENEMY.deathMs);
       if (this.deathTimer <= 0) this.kill();
+      return;
+    }
+
+    // Recover from a non-lethal hit before walking again.
+    if (this.flashTimer > 0) {
+      this.flashTimer -= delta;
+      if (this.flashTimer <= 0) this.graphics.use(this.animations.walk);
       return;
     }
 

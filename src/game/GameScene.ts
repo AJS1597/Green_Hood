@@ -137,7 +137,7 @@ export class GameScene extends ex.Scene {
 
   /** Does the player's sword overlap this king right now? */
   private swordTouches(king: KingActor): boolean {
-    if (king.isDying) return false;
+    if (!king.isVulnerable) return false;
     const reach = CONFIG.COMBAT.reach;
     const { x, y, facing } = this.player.state;
     const swordLeft = facing > 0 ? x : x - reach;
@@ -175,7 +175,7 @@ export class GameScene extends ex.Scene {
   private resolveSwordHits(): void {
     for (const king of this.kings) {
       if (this.swordTouches(king)) {
-        king.cutDown();
+        king.hitBySword();
       }
     }
   }

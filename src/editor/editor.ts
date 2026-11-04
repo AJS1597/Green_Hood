@@ -97,6 +97,14 @@ export function rectCells(a: { col: number; row: number }, b: { col: number; row
   return cells;
 }
 
+/** Remove everything (tile, collision and king) from a cell. */
+export function eraseCell(doc: Doc, col: number, row: number): void {
+  const k = key(col, row);
+  doc.tiles.delete(k);
+  doc.solids.delete(k);
+  doc.kings.delete(k);
+}
+
 export function docFromLevel(level: Level): Doc {
   const doc = emptyDoc();
   for (let row = 0; row < level.rows; row++) {
@@ -378,12 +386,9 @@ export async function startEditor(): Promise<void> {
       case 'brush':
         paintTile(col, row);
         break;
-      case 'erase': {
-        const k = key(col, row);
-        doc.tiles.delete(k);
-        doc.solids.delete(k);
+      case 'erase':
+        eraseCell(doc, col, row);
         break;
-      }
       case 'solid': {
         const k = key(col, row);
         if (doc.solids.has(k)) doc.solids.delete(k);
@@ -622,7 +627,8 @@ function buildDom(): EditorDom {
           <button data-tool="pan">Pan</button>
         </div>
         <p class="ed-hint">Line/Box drag out a run of the selected tile.<br>
-          King places an enemy; click it again to remove.<br>
+          King places an enemy (click again to remove).<br>
+          Erase clears the tile, collision and any king.<br>
           The grid is infinite — pan with the wheel or middle-drag.<br>
           Save crops the map to what you painted.</p>
       </aside>

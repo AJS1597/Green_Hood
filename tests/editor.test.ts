@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { docToLevel, emptyDoc, docFromLevel, lineCells, rectCells } from '../src/editor/editor';
+import {
+  docToLevel,
+  emptyDoc,
+  docFromLevel,
+  eraseCell,
+  lineCells,
+  rectCells,
+} from '../src/editor/editor';
 
 describe('editor bounding-box crop', () => {
   it('crops a sparse map to the smallest rectangle around its contents', () => {
@@ -67,6 +74,19 @@ describe('editor bounding-box crop', () => {
 
     const restored = docFromLevel(level);
     expect(restored.kings.get('4,3')).toBe('king');
+  });
+
+  it('erase removes a king as well as the tile and collision', () => {
+    const doc = emptyDoc();
+    doc.tiles.set('3,3', 8);
+    doc.solids.add('3,3');
+    doc.kings.set('3,3', 'king');
+
+    eraseCell(doc, 3, 3);
+
+    expect(doc.tiles.has('3,3')).toBe(false);
+    expect(doc.solids.has('3,3')).toBe(false);
+    expect(doc.kings.has('3,3')).toBe(false);
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../src/game/config';
 import { createEmptyLevel, type Level } from '../src/game/level';
-import { createEnemyState, stepEnemy } from '../src/game/enemy';
+import { createEnemyState, damageEnemy, stepEnemy } from '../src/game/enemy';
 
 const STEP = 1 / 120;
 
@@ -20,6 +20,29 @@ function run(level: Level, state: ReturnType<typeof createEnemyState>, seconds: 
   const steps = Math.round(seconds / STEP);
   for (let i = 0; i < steps; i++) stepEnemy(level, state, STEP);
 }
+
+describe('king health', () => {
+  it('takes three sword hits to defeat', () => {
+    const state = createEnemyState(5, 9, 1);
+    expect(state.hp).toBe(CONFIG.ENEMY.hp);
+    expect(state.hp).toBe(3);
+
+    expect(damageEnemy(state)).toBe(false);
+    expect(state.hp).toBe(2);
+    expect(damageEnemy(state)).toBe(false);
+    expect(state.hp).toBe(1);
+    expect(damageEnemy(state)).toBe(true);
+    expect(state.hp).toBe(0);
+    expect(state.alive).toBe(false);
+  });
+
+  it('ignores further hits once defeated', () => {
+    const state = createEnemyState(5, 9, 1);
+    for (let i = 0; i < 3; i++) damageEnemy(state);
+    expect(damageEnemy(state)).toBe(false);
+    expect(state.hp).toBe(0);
+  });
+});
 
 describe('king patrol', () => {
   it('lands on the ground', () => {

@@ -23,9 +23,9 @@ pnpm preview
 
 A single room with an archer on a strip of ground, some platforms, a ladder and
 a chest goal. **King** enemies placed in the level patrol the ground like
-Koopas — they walk back and forth, turn at walls and platform edges, and turn
-red and die when hit by a sword swing. Touching a live king sends you back to
-the start. `R` resets the room.
+Koopas — they walk back and forth, turn at walls and platform edges, flash red
+when hit, and die after three sword swings. Touching a live king sends you back
+to the start. `R` resets the room.
 
 ## Controls
 
@@ -68,7 +68,7 @@ Open `/dev`. The editor is a pannable tilemap tool:
 
 1. **Palette** (left) lists every tile in `sheet.png`. Click one to select it. Tiles with a **red outline** are solid by default.
 2. **Paint** with the brush: click or drag on the grid. Painting a "solid" tile also marks that cell as colliding; painting a decorative tile does not. **Line** and **Box** drag out a run or a filled rectangle of the selected tile.
-3. **Erase** clears a cell. **Solid** toggles collision on a cell by itself (shown as a red overlay). **Spawn** / **Goal** place the player start and the chest. **King** places an enemy (click it again to remove). **Pan** (or middle-drag, or the wheel) moves around.
+3. **Erase** clears a cell, including any king on it. **Solid** toggles collision on a cell by itself (shown as a red overlay). **Spawn** / **Goal** place the player start and the chest. **King** places an enemy (click it again to remove). **Pan** (or middle-drag, or the wheel) moves around.
 4. The grid **fills the window and is effectively infinite** — pan as far as you like. There is no fixed map size while editing.
 5. **Save** crops the map to the **smallest rectangle around everything you painted** (tiles, collision, kings, spawn, goal) and writes it to `public/levels/level1.json` (through a tiny Vite dev middleware — see the `levelWriter` plugin in `vite.config.ts`). So a huge sparse sketch stores only the box that matters. **Fit** recentres the view on the content.
 

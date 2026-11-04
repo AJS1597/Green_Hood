@@ -54,7 +54,11 @@ export const CONFIG = {
     height: 22,
     /** Patrol speed, in px/s. */
     speed: 42,
-    /** How long the red hurt flash lasts before the king is removed, in ms. */
+    /** Sword hits needed to defeat a king. */
+    hp: 3,
+    /** How long the red hurt flash lasts after a non-lethal hit, in ms. */
+    flashMs: 150,
+    /** How long the red death flash lasts before the king is removed, in ms. */
     deathMs: 500,
   },
 
