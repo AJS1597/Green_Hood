@@ -31,6 +31,16 @@ export interface GridPoint {
   row: number;
 }
 
+/** Enemy kinds that can be placed in a level. */
+export type EnemyType = 'king';
+
+/** An enemy placed in the level, standing in cell (col, row). */
+export interface EnemySpawn {
+  type: EnemyType;
+  col: number;
+  row: number;
+}
+
 /** The JSON on disk. */
 export interface LevelData {
   tileSize: number;
@@ -42,6 +52,8 @@ export interface LevelData {
   tiles: number[][];
   /** `solids[row][col]`, 1 for solid. */
   solids: number[][];
+  /** Placed enemies (kings). */
+  enemies?: EnemySpawn[];
 }
 
 /** A validated level ready for the game to use. */
@@ -53,6 +65,7 @@ export interface Level {
   goal: GridPoint;
   tiles: number[][];
   solids: boolean[][];
+  enemies: EnemySpawn[];
 }
 
 /** A blank level of the given size, with a spawn in the top-left corner. */
@@ -67,6 +80,7 @@ export function createEmptyLevel(columns: number, rows: number): Level {
     goal: { col: columns - 2, row: rows - 2 },
     tiles,
     solids,
+    enemies: [],
   };
 }
 
@@ -85,6 +99,9 @@ export function levelFromData(data: Partial<LevelData>): Level {
   const solids = base.solids.map((row, r) =>
     row.map((_, c) => Boolean(data.solids?.[r]?.[c])),
   );
+  const enemies = (data.enemies ?? [])
+    .filter((e) => e && typeof e.col === 'number' && typeof e.row === 'number')
+    .map((e) => ({ type: 'king' as const, col: Math.round(e.col), row: Math.round(e.row) }));
 
   return {
     tileSize: data.tileSize ?? CONFIG.TILE,
@@ -94,6 +111,7 @@ export function levelFromData(data: Partial<LevelData>): Level {
     goal: data.goal ?? base.goal,
     tiles,
     solids,
+    enemies,
   };
 }
 
@@ -107,6 +125,7 @@ export function levelToData(level: Level): LevelData {
     goal: { ...level.goal },
     tiles: level.tiles.map((row) => [...row]),
     solids: level.solids.map((row) => row.map((solid) => (solid ? 1 : 0))),
+    enemies: level.enemies.map((enemy) => ({ ...enemy })),
   };
 }
 

@@ -1,7 +1,7 @@
 import * as ex from 'excalibur';
 import { CONFIG } from './config';
 import { SHEETS, type GameAssets } from './assets';
-import { type Level, isSolid, levelPixelSize } from './level';
+import { type Level, levelPixelSize } from './level';
 import { PlayerActor } from './PlayerActor';
 import { KingActor } from './KingActor';
 import { playSound } from './audio';
@@ -11,13 +11,10 @@ interface Effect {
   ttl: number;
 }
 
-/** Columns where kings are placed (on the first solid ground below them). */
-const KING_SPAWNS = [15, 50];
-
 /**
  * The playable scene: draws the painted tilemap, spawns the player and the
- * King enemies, follows the player with the camera and fires the sound and
- * slash effects.
+ * Kings placed in the level, follows the player with the camera and fires the
+ * sound and slash effects.
  */
 export class GameScene extends ex.Scene {
   private readonly level: Level;
@@ -46,8 +43,7 @@ export class GameScene extends ex.Scene {
     };
     this.add(this.player);
 
-    this.spawnKing(KING_SPAWNS[0] ?? 15);
-    this.spawnKing(KING_SPAWNS[1] ?? 50);
+    this.spawnKings();
 
     this.camera.strategy.limitCameraBounds(
       new ex.BoundingBox(0, 0, levelPixelSize(this.level).width, levelPixelSize(this.level).height),
@@ -129,15 +125,13 @@ export class GameScene extends ex.Scene {
     return actor;
   }
 
-  /** Place a king on the first solid tile in the given column. */
-  private spawnKing(col: number): void {
-    for (let row = 0; row < this.level.rows; row++) {
-      if (isSolid(this.level, col, row)) {
-        const king = new KingActor(this.level, col, row, this.assets);
-        this.kings.push(king);
-        this.add(king);
-        return;
-      }
+  /** Place every king the level defines. */
+  private spawnKings(): void {
+    for (const enemy of this.level.enemies) {
+      if (enemy.type !== 'king') continue;
+      const king = new KingActor(this.level, enemy.col, enemy.row, this.assets);
+      this.kings.push(king);
+      this.add(king);
     }
   }
 
@@ -235,8 +229,7 @@ export class GameScene extends ex.Scene {
     this.player.respawn();
     for (const king of this.kings) king.kill();
     this.kings = [];
-    this.spawnKing(KING_SPAWNS[0] ?? 15);
-    this.spawnKing(KING_SPAWNS[1] ?? 50);
+    this.spawnKings();
     this.won = false;
     this.setMessage('');
   }

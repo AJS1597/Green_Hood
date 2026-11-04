@@ -21,11 +21,11 @@ export interface EnemyState {
 
 const TILE = CONFIG.TILE;
 
-/** Spawn an enemy whose feet rest on top of the given tile row. */
+/** Spawn an enemy standing in the given cell (feet on the tile below it). */
 export function createEnemyState(col: number, row: number, dir: 1 | -1 = 1): EnemyState {
   return {
     x: col * TILE + TILE / 2,
-    y: row * TILE,
+    y: (row + 1) * TILE,
     dir,
     vy: 0,
     onGround: false,

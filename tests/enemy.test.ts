@@ -24,7 +24,7 @@ function run(level: Level, state: ReturnType<typeof createEnemyState>, seconds: 
 describe('king patrol', () => {
   it('lands on the ground', () => {
     const level = makeLevel();
-    const state = createEnemyState(5, 10, 1);
+    const state = createEnemyState(5, 9, 1);
     run(level, state, 0.5);
     expect(state.onGround).toBe(true);
     expect(state.y).toBe(10 * CONFIG.TILE);
@@ -32,7 +32,7 @@ describe('king patrol', () => {
 
   it('walks in the direction it faces', () => {
     const level = makeLevel();
-    const state = createEnemyState(5, 10, 1);
+    const state = createEnemyState(5, 9, 1);
     const startX = state.x;
     run(level, state, 1);
     expect(state.x).toBeGreaterThan(startX);
@@ -44,7 +44,7 @@ describe('king patrol', () => {
     // Wall at column 12, two tiles tall.
     level.solids[8]![12] = true;
     level.solids[9]![12] = true;
-    const state = createEnemyState(10, 10, 1);
+    const state = createEnemyState(10, 9, 1);
     run(level, state, 2);
     expect(state.dir).toBe(-1);
     expect(state.x).toBeLessThan(12 * CONFIG.TILE);
@@ -52,7 +52,7 @@ describe('king patrol', () => {
 
   it('turns around at the edge of a platform', () => {
     const level = makeLevel(9); // ground only under columns 0..8
-    const state = createEnemyState(7, 10, 1);
+    const state = createEnemyState(7, 9, 1);
     run(level, state, 2);
     expect(state.dir).toBe(-1);
     expect(state.x).toBeLessThanOrEqual(9 * CONFIG.TILE);
@@ -60,7 +60,7 @@ describe('king patrol', () => {
 
   it('stops moving once dead', () => {
     const level = makeLevel();
-    const state = createEnemyState(5, 10, 1);
+    const state = createEnemyState(5, 9, 1);
     run(level, state, 0.5);
     state.alive = false;
     const x = state.x;

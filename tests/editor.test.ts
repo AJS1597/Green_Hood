@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { docToLevel, emptyDoc, docFromLevel } from '../src/editor/editor';
+import { docToLevel, emptyDoc, docFromLevel, lineCells, rectCells } from '../src/editor/editor';
 
 describe('editor bounding-box crop', () => {
   it('crops a sparse map to the smallest rectangle around its contents', () => {
@@ -50,5 +50,49 @@ describe('editor bounding-box crop', () => {
     // Restored coordinates are relative to the cropped rectangle's origin.
     expect(restored.tiles.get('0,0')).toBe(8);
     expect(restored.tiles.get('5,1')).toBe(28);
+  });
+
+  it('saves placed kings and includes them in the bounds', () => {
+    const doc = emptyDoc();
+    doc.tiles.set('5,5', 8);
+    doc.spawn = { col: 5, row: 4 };
+    doc.goal = { col: 5, row: 4 };
+    doc.kings.set('9,7', 'king'); // far from the tiles, so it grows the box
+
+    const level = docToLevel(doc);
+
+    expect(level.columns).toBe(5); // cols 5..9
+    expect(level.rows).toBe(4); // rows 4..7
+    expect(level.enemies).toEqual([{ type: 'king', col: 4, row: 3 }]);
+
+    const restored = docFromLevel(level);
+    expect(restored.kings.get('4,3')).toBe('king');
+  });
+});
+
+describe('line and box helpers', () => {
+  it('draws a straight horizontal line', () => {
+    const cells = lineCells({ col: 2, row: 3 }, { col: 6, row: 3 });
+    expect(cells).toEqual([
+      { col: 2, row: 3 },
+      { col: 3, row: 3 },
+      { col: 4, row: 3 },
+      { col: 5, row: 3 },
+      { col: 6, row: 3 },
+    ]);
+  });
+
+  it('draws a diagonal line with one cell per step', () => {
+    const cells = lineCells({ col: 0, row: 0 }, { col: 3, row: 3 });
+    expect(cells).toHaveLength(4);
+    expect(cells[0]).toEqual({ col: 0, row: 0 });
+    expect(cells[3]).toEqual({ col: 3, row: 3 });
+  });
+
+  it('fills a rectangle regardless of corner order', () => {
+    const cells = rectCells({ col: 1, row: 1 }, { col: 2, row: 2 });
+    expect(cells).toHaveLength(4);
+    expect(cells).toContainEqual({ col: 1, row: 1 });
+    expect(cells).toContainEqual({ col: 2, row: 2 });
   });
 });

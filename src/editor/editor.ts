@@ -1,5 +1,5 @@
-import { AssetPaths, SHEETS, SOLID_TILE_HINTS, TILE_COUNT } from '../game/tileset';
-import { type Level } from '../game/level';
+import { AssetPaths, KING_ROW, SHEETS, SOLID_TILE_HINTS, TILE_COUNT } from '../game/tileset';
+import { type EnemyType, type Level } from '../game/level';
 import { loadLevel, saveLevel } from '../game/levelFile';
 
 /**
@@ -10,12 +10,12 @@ import { loadLevel, saveLevel } from '../game/levelFile';
  * A pannable tilemap editor:
  *   - the grid fills the window and is effectively infinite (pan to keep going)
  *   - the palette lists every tile in `sheet.png`
- *   - tools for painting, erasing, collision, and spawn/goal placement
+ *   - tools: paint, erase, solid, line, box, king, spawn, goal, pan
  *   - Save crops the map to the smallest bounding box around everything you
  *     painted, so huge empty areas are never stored
  */
 
-type Tool = 'brush' | 'erase' | 'solid' | 'spawn' | 'goal' | 'pan';
+type Tool = 'brush' | 'erase' | 'solid' | 'line' | 'box' | 'king' | 'spawn' | 'goal' | 'pan';
 
 const CELL = 24; // pixels per tile in the editor
 const PALETTE_SCALE = 2; // palette tile zoom
@@ -27,6 +27,7 @@ const COLOR = {
   solid: 'rgba(255,64,64,0.35)',
   spawn: 'rgba(64,220,120,0.55)',
   goal: 'rgba(255,210,64,0.55)',
+  king: 'rgba(255,120,64,0.9)',
   select: '#ffd23f',
 };
 
@@ -35,6 +36,8 @@ export interface Doc {
   tiles: Map<string, number>;
   /** "col,row" cells that collide. */
   solids: Set<string>;
+  /** "col,row" -> enemy type. */
+  kings: Map<string, EnemyType>;
   spawn: { col: number; row: number };
   goal: { col: number; row: number };
 }
@@ -46,7 +49,52 @@ const parseKey = (k: string): [number, number] => {
 };
 
 export function emptyDoc(): Doc {
-  return { tiles: new Map(), solids: new Set(), spawn: { col: 1, row: 1 }, goal: { col: 2, row: 1 } };
+  return {
+    tiles: new Map(),
+    solids: new Set(),
+    kings: new Map(),
+    spawn: { col: 1, row: 1 },
+    goal: { col: 2, row: 1 },
+  };
+}
+
+/** Straight line of cells between two points (Bresenham). */
+export function lineCells(a: { col: number; row: number }, b: { col: number; row: number }) {
+  const cells: { col: number; row: number }[] = [];
+  let x = a.col;
+  let y = a.row;
+  const dx = Math.abs(b.col - a.col);
+  const dy = -Math.abs(b.row - a.row);
+  const sx = a.col < b.col ? 1 : -1;
+  const sy = a.row < b.row ? 1 : -1;
+  let err = dx + dy;
+  for (;;) {
+    cells.push({ col: x, row: y });
+    if (x === b.col && y === b.row) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      x += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      y += sy;
+    }
+  }
+  return cells;
+}
+
+/** Every cell inside the rectangle spanned by two corners. */
+export function rectCells(a: { col: number; row: number }, b: { col: number; row: number }) {
+  const cells: { col: number; row: number }[] = [];
+  const c0 = Math.min(a.col, b.col);
+  const c1 = Math.max(a.col, b.col);
+  const r0 = Math.min(a.row, b.row);
+  const r1 = Math.max(a.row, b.row);
+  for (let row = r0; row <= r1; row++) {
+    for (let col = c0; col <= c1; col++) cells.push({ col, row });
+  }
+  return cells;
 }
 
 export function docFromLevel(level: Level): Doc {
@@ -60,6 +108,7 @@ export function docFromLevel(level: Level): Doc {
   }
   doc.spawn = { ...level.spawn };
   doc.goal = { ...level.goal };
+  for (const enemy of level.enemies) doc.kings.set(key(enemy.col, enemy.row), enemy.type);
   return doc;
 }
 
@@ -78,6 +127,7 @@ export function docToLevel(doc: Doc): Level {
 
   for (const k of doc.tiles.keys()) consider(...parseKey(k));
   for (const k of doc.solids) consider(...parseKey(k));
+  for (const k of doc.kings.keys()) consider(...parseKey(k));
   consider(doc.spawn.col, doc.spawn.row);
   consider(doc.goal.col, doc.goal.row);
 
@@ -103,6 +153,10 @@ export function docToLevel(doc: Doc): Level {
     const row = solids[r - minR];
     if (row) row[c - minC] = true;
   }
+  const enemies = [...doc.kings].map(([k, type]) => {
+    const [c, r] = parseKey(k);
+    return { type, col: c - minC, row: r - minR };
+  });
 
   return {
     tileSize: 16,
@@ -112,6 +166,7 @@ export function docToLevel(doc: Doc): Level {
     goal: { col: doc.goal.col - minC, row: doc.goal.row - minR },
     tiles,
     solids,
+    enemies,
   };
 }
 
@@ -129,6 +184,7 @@ function docBounds(doc: Doc): { minC: number; minR: number; maxC: number; maxR: 
   };
   for (const k of doc.tiles.keys()) consider(...parseKey(k));
   for (const k of doc.solids) consider(...parseKey(k));
+  for (const k of doc.kings.keys()) consider(...parseKey(k));
   consider(doc.spawn.col, doc.spawn.row);
   consider(doc.goal.col, doc.goal.row);
   if (!Number.isFinite(minC)) return { minC: 0, minR: 0, maxC: 0, maxR: 0 };
@@ -136,7 +192,10 @@ function docBounds(doc: Doc): { minC: number; minR: number; maxC: number; maxR: 
 }
 
 export async function startEditor(): Promise<void> {
-  const sheet = await loadSheetImage();
+  const [sheet, characters] = await Promise.all([
+    loadSheetImage(AssetPaths.tiles),
+    loadSheetImage(AssetPaths.characters),
+  ]);
   const ui = buildDom();
 
   let doc: Doc;
@@ -151,6 +210,8 @@ export async function startEditor(): Promise<void> {
   let painting = false;
   let panning = false;
   let lastPointer = { x: 0, y: 0 };
+  // Pending line/box drag, shown as a preview until the pointer is released.
+  let drag: { start: { col: number; row: number }; end: { col: number; row: number } } | null = null;
   const view = { x: 0, y: 0 }; // top-left of the viewport, in world pixels
 
   // ---------------------------------------------------------------- palette
@@ -190,7 +251,7 @@ export async function startEditor(): Promise<void> {
     const index = row * SHEETS.tiles.columns + col;
     if (index >= 0 && index < TILE_COUNT) {
       selectedTile = index;
-      if (tool === 'pan') tool = 'brush';
+      if (tool !== 'brush' && tool !== 'line' && tool !== 'box') tool = 'brush';
       drawPalette();
       syncTools();
       setStatus(`Selected tile ${index}`);
@@ -264,6 +325,34 @@ export async function startEditor(): Promise<void> {
     mapCtx.fillRect(doc.spawn.col * CELL - view.x, doc.spawn.row * CELL - view.y, CELL, CELL);
     mapCtx.fillStyle = COLOR.goal;
     mapCtx.fillRect(doc.goal.col * CELL - view.x, doc.goal.row * CELL - view.y, CELL, CELL);
+
+    // King markers (drawn with the actual king sprite from characters.png).
+    for (const k of doc.kings.keys()) {
+      const [col, row] = parseKey(k);
+      const sx = col * CELL - view.x;
+      const sy = row * CELL - view.y;
+      mapCtx.drawImage(characters, 0, KING_ROW * 32, 32, 32, sx, sy, CELL, CELL);
+      mapCtx.strokeStyle = COLOR.king;
+      mapCtx.lineWidth = 2;
+      mapCtx.strokeRect(sx + 1, sy + 1, CELL - 2, CELL - 2);
+    }
+
+    // Live preview of a line/box drag.
+    if (drag) {
+      const cells = tool === 'box' ? rectCells(drag.start, drag.end) : lineCells(drag.start, drag.end);
+      for (const cell of cells) {
+        const sx = cell.col * CELL - view.x;
+        const sy = cell.row * CELL - view.y;
+        const tcol = selectedTile % SHEETS.tiles.columns;
+        const trow = Math.floor(selectedTile / SHEETS.tiles.columns);
+        mapCtx.globalAlpha = 0.6;
+        mapCtx.drawImage(sheet, tcol * 16, trow * 16, 16, 16, sx, sy, CELL, CELL);
+        mapCtx.globalAlpha = 1;
+        mapCtx.strokeStyle = COLOR.select;
+        mapCtx.lineWidth = 1;
+        mapCtx.strokeRect(sx + 0.5, sy + 0.5, CELL - 1, CELL - 1);
+      }
+    }
   };
 
   const tileFromEvent = (event: PointerEvent): { col: number; row: number } => {
@@ -276,15 +365,19 @@ export async function startEditor(): Promise<void> {
     };
   };
 
+  /** Paint the selected tile (with auto collision) into a cell. */
+  const paintTile = (col: number, row: number) => {
+    const k = key(col, row);
+    doc.tiles.set(k, selectedTile);
+    if (SOLID_TILE_HINTS.has(selectedTile)) doc.solids.add(k);
+    else doc.solids.delete(k);
+  };
+
   const apply = (col: number, row: number) => {
     switch (tool) {
-      case 'brush': {
-        const k = key(col, row);
-        doc.tiles.set(k, selectedTile);
-        if (SOLID_TILE_HINTS.has(selectedTile)) doc.solids.add(k);
-        else doc.solids.delete(k);
+      case 'brush':
+        paintTile(col, row);
         break;
-      }
       case 'erase': {
         const k = key(col, row);
         doc.tiles.delete(k);
@@ -297,15 +390,32 @@ export async function startEditor(): Promise<void> {
         else doc.solids.add(k);
         break;
       }
+      case 'king': {
+        const k = key(col, row);
+        if (doc.kings.has(k)) doc.kings.delete(k);
+        else doc.kings.set(k, 'king');
+        break;
+      }
       case 'spawn':
         doc.spawn = { col, row };
         break;
       case 'goal':
         doc.goal = { col, row };
         break;
+      case 'line':
+      case 'box':
       case 'pan':
         break;
     }
+    drawMap();
+  };
+
+  /** Commit a pending line/box drag. */
+  const commitDrag = () => {
+    if (!drag) return;
+    const cells = tool === 'box' ? rectCells(drag.start, drag.end) : lineCells(drag.start, drag.end);
+    for (const cell of cells) paintTile(cell.col, cell.row);
+    drag = null;
     drawMap();
   };
 
@@ -329,8 +439,13 @@ export async function startEditor(): Promise<void> {
       panning = true;
       return;
     }
-    painting = true;
     const cell = tileFromEvent(event);
+    if (tool === 'line' || tool === 'box') {
+      drag = { start: cell, end: cell };
+      drawMap();
+      return;
+    }
+    painting = true;
     apply(cell.col, cell.row);
   });
 
@@ -346,10 +461,16 @@ export async function startEditor(): Promise<void> {
       drawMap();
       return;
     }
+    if (drag) {
+      drag.end = cell;
+      drawMap();
+      return;
+    }
     if (painting) apply(cell.col, cell.row);
   });
 
   const endPointer = (event: PointerEvent) => {
+    if (drag) commitDrag();
     painting = false;
     panning = false;
     if (map.hasPointerCapture(event.pointerId)) map.releasePointerCapture(event.pointerId);
@@ -434,13 +555,13 @@ export async function startEditor(): Promise<void> {
   setStatus('Pan with the wheel or middle-drag. Save crops to the painted bounds.');
 }
 
-/** Load the tilesheet as a plain <img> for canvas drawing. */
-function loadSheetImage(): Promise<HTMLImageElement> {
+/** Load an image as a plain <img> for canvas drawing. */
+function loadSheetImage(path: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error(`Could not load ${AssetPaths.tiles}`));
-    image.src = AssetPaths.tiles;
+    image.onerror = () => reject(new Error(`Could not load ${path}`));
+    image.src = path;
   });
 }
 
@@ -491,13 +612,17 @@ function buildDom(): EditorDom {
         <h2>Tools</h2>
         <div class="ed-tools">
           <button data-tool="brush">Paint</button>
+          <button data-tool="line">Line</button>
+          <button data-tool="box">Box</button>
           <button data-tool="erase">Erase</button>
           <button data-tool="solid">Solid</button>
+          <button data-tool="king">King</button>
           <button data-tool="spawn">Spawn</button>
           <button data-tool="goal">Goal</button>
           <button data-tool="pan">Pan</button>
         </div>
-        <p class="ed-hint">Red outline = tile collides by default.<br>
+        <p class="ed-hint">Line/Box drag out a run of the selected tile.<br>
+          King places an enemy; click it again to remove.<br>
           The grid is infinite — pan with the wheel or middle-drag.<br>
           Save crops the map to what you painted.</p>
       </aside>

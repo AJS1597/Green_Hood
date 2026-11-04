@@ -22,10 +22,10 @@ pnpm preview
 ## What's here
 
 A single room with an archer on a strip of ground, some platforms, a ladder and
-a chest goal. Two **King** enemies patrol the ground like Koopas — they walk
-back and forth, turn at walls and platform edges, and turn red and die when hit
-by a sword swing. Touching a live king sends you back to the start. `R` resets
-the room.
+a chest goal. **King** enemies placed in the level patrol the ground like
+Koopas — they walk back and forth, turn at walls and platform edges, and turn
+red and die when hit by a sword swing. Touching a live king sends you back to
+the start. `R` resets the room.
 
 ## Controls
 
@@ -67,10 +67,10 @@ Licenses: every one of these is **CC0** (public domain). See `CREDITS.md`.
 Open `/dev`. The editor is a pannable tilemap tool:
 
 1. **Palette** (left) lists every tile in `sheet.png`. Click one to select it. Tiles with a **red outline** are solid by default.
-2. **Paint** with the brush: click or drag on the grid. Painting a "solid" tile also marks that cell as colliding; painting a decorative tile does not.
-3. **Erase** clears a cell. **Solid** toggles collision on a cell by itself (shown as a red overlay). **Spawn** / **Goal** place the player start and the chest. **Pan** (or middle-drag, or the wheel) moves around.
+2. **Paint** with the brush: click or drag on the grid. Painting a "solid" tile also marks that cell as colliding; painting a decorative tile does not. **Line** and **Box** drag out a run or a filled rectangle of the selected tile.
+3. **Erase** clears a cell. **Solid** toggles collision on a cell by itself (shown as a red overlay). **Spawn** / **Goal** place the player start and the chest. **King** places an enemy (click it again to remove). **Pan** (or middle-drag, or the wheel) moves around.
 4. The grid **fills the window and is effectively infinite** — pan as far as you like. There is no fixed map size while editing.
-5. **Save** crops the map to the **smallest rectangle around everything you painted** (tiles, collision, spawn, goal) and writes it to `public/levels/level1.json` (through a tiny Vite dev middleware — see the `levelWriter` plugin in `vite.config.ts`). So a huge sparse sketch stores only the box that matters. **Fit** recentres the view on the content.
+5. **Save** crops the map to the **smallest rectangle around everything you painted** (tiles, collision, kings, spawn, goal) and writes it to `public/levels/level1.json` (through a tiny Vite dev middleware — see the `levelWriter` plugin in `vite.config.ts`). So a huge sparse sketch stores only the box that matters. **Fit** recentres the view on the content.
 
 ### The tilesheet grid, by hand
 
@@ -96,11 +96,15 @@ Open `/dev`. The editor is a pannable tilemap tool:
   "spawn": { "col": 3, "row": 18 },
   "goal":  { "col": 55, "row": 18 },
   "tiles":  [[ -1, -1, 8, ... ]],
-  "solids": [[  0,  0, 1, ... ]]
+  "solids": [[  0,  0, 1, ... ]],
+  "enemies": [
+    { "type": "king", "col": 52, "row": 18 },
+    { "type": "king", "col": 58, "row": 18 }
+  ]
 }
 ```
 
-`tiles` is the visual layer (a tile index per cell, `-1` = empty); `solids` is the collision layer (`1` = blocks movement). Both are `row`-major.
+`tiles` is the visual layer (a tile index per cell, `-1` = empty); `solids` is the collision layer (`1` = blocks movement). Both are `row`-major. `enemies` records the kings placed with the editor (each cell is where the enemy stands, feet on the tile below).
 
 **Why JSON and not one character per tile?** A tile index needs 136 distinct symbols, but there are only 95 printable ASCII characters — so a single-character-per-tile text map can't represent the whole sheet. JSON stores every tile and the collision layer without ambiguity, and still diffs cleanly in git.
 
@@ -122,7 +126,7 @@ src/
     GameScene.ts     tilemap rendering, camera, enemies, sfx, goal
   editor/editor.ts   the /dev tilemap editor
   main.ts            route to game or editor
-tests/               29 headless tests
+tests/               33 headless tests
 ```
 
 ### Key decisions
