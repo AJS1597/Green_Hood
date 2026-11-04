@@ -33,7 +33,7 @@ async function startGame(): Promise<void> {
     width: CONFIG.VIEW.width,
     height: CONFIG.VIEW.height,
     canvasElementId: 'game',
-    displayMode: ex.DisplayMode.FitScreen,
+    displayMode: ex.DisplayMode.Fixed,
     backgroundColor: ex.Color.fromHex('#0b1220'),
     pixelArt: true,
     physics: false,
@@ -45,8 +45,59 @@ async function startGame(): Promise<void> {
   await game.start();
   void game.goToScene('game');
 
+  fitCanvasToWindow(game);
+  setupFullscreen(game);
+
   // Handy console handle, mirroring the reference project.
   (window as unknown as { __hood?: unknown }).__hood = { game, scene };
+}
+
+/**
+ * Scale the canvas to the window by a whole-number factor so pixel art stays
+ * crisp (no blurry fractional scaling). Leftover space is left as a border.
+ */
+function fitCanvasToWindow(game: ex.Engine): void {
+  const apply = () => {
+    const scale = Math.max(
+      1,
+      Math.floor(
+        Math.min(
+          window.innerWidth / CONFIG.VIEW.width,
+          window.innerHeight / CONFIG.VIEW.height,
+        ),
+      ),
+    );
+    game.canvas.style.width = `${CONFIG.VIEW.width * scale}px`;
+    game.canvas.style.height = `${CONFIG.VIEW.height * scale}px`;
+  };
+
+  apply();
+  window.addEventListener('resize', () => {
+    apply();
+    // Excalibur may re-apply its own canvas size on resize; run again after.
+    requestAnimationFrame(apply);
+  });
+}
+
+/** Toggle real browser fullscreen (button + the F key). */
+function setupFullscreen(game: ex.Engine): void {
+  const toggle = () => {
+    if (game.screen.isFullscreen) {
+      void game.screen.exitFullscreen();
+    } else {
+      void game.screen.enterFullscreen('shell');
+    }
+  };
+
+  game.input.keyboard.on('press', (event) => {
+    if (event.key === ex.Keys.F) toggle();
+  });
+  document
+    .getElementById('fullscreen-button')
+    ?.addEventListener('click', (event) => {
+      event.preventDefault();
+      toggle();
+    });
 }
 
 if (isEditorRoute()) {

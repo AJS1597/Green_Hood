@@ -116,6 +116,7 @@ tests/               21 headless tests
 
 - **Pure logic, engine-free.** `player.ts` and `level.ts` import no Excalibur, so jump/ladder/collision feel is replayable in Vitest.
 - **One baked canvas for the tilemap.** All painted tiles are drawn once into a canvas and shown as a single sprite.
+- **Crisp integer scaling.** The 960×540 canvas is scaled by whole numbers and centred (`fitCanvasToWindow` in `main.ts`), so pixel art never gets the blurry, uneven look of fractional scaling. Leftover space is the same colour as the game background. `F` (or the button) toggles real browser fullscreen.
 - **Custom grid collision**, not engine physics (`physics: false`) — deterministic and testable.
 - **Tiles are data.** The level is a JSON grid, edited visually, not hard-coded in the source.
 

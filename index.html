@@ -11,9 +11,10 @@
     <title>Green Hood</title>
     <style>
       :root { color-scheme: dark; }
-      html, body { margin: 0; height: 100%; background: #05080f; }
-      #shell { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
-      #game { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+      html, body { margin: 0; height: 100%; background: #0b1220; }
+      #shell { position: relative; width: 100vw; height: 100vh; overflow: hidden;
+        display: flex; align-items: center; justify-content: center; }
+      #game { display: block; image-rendering: pixelated; }
       #hud {
         position: absolute; inset: 0; pointer-events: none;
         font: 14px/1.5 system-ui, sans-serif; color: #e6edf3;
@@ -28,6 +29,13 @@
       .controls { position: absolute; bottom: 14px; left: 16px; display: grid; gap: 4px;
         font-size: 12px; color: #cdd9ea; }
       .controls code { color: #7fe0a0; }
+      .fs-btn {
+        position: absolute; top: 14px; right: 16px; pointer-events: auto;
+        background: rgba(27, 42, 68, 0.85); color: #e6edf3;
+        border: 1px solid #3a5480; border-radius: 6px; padding: 6px 10px;
+        font: 12px/1 system-ui, sans-serif; cursor: pointer;
+      }
+      .fs-btn:hover { background: #24395c; }
       kbd {
         display: inline-block; min-width: 14px; padding: 1px 5px; margin: 0 1px;
         background: #1b2a44; border: 1px solid #3a5480; border-radius: 4px;
@@ -47,10 +55,14 @@
 
         <p id="hud-message" class="hud-message"></p>
 
+        <button id="fullscreen-button" class="fs-btn" type="button" title="Fullscreen (F)">
+          ⛶ Fullscreen
+        </button>
+
         <aside class="controls" aria-label="Controls">
           <div><kbd>←</kbd><kbd>→</kbd> move <kbd>↑</kbd><kbd>↓</kbd> climb</div>
           <div><kbd>Z</kbd> jump <kbd>X</kbd> sword</div>
-          <div><kbd>R</kbd> restart &nbsp;·&nbsp; edit at <code>/dev</code></div>
+          <div><kbd>F</kbd> fullscreen <kbd>R</kbd> restart &nbsp;·&nbsp; edit at <code>/dev</code></div>
         </aside>
       </div>
     </main>
