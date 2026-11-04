@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0a150d" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M50 8 L74 30 L64 78 L50 92 L36 78 L26 30 Z' fill='%232f9e4f'/%3E%3Cpath d='M50 8 L74 30 L50 40 L26 30 Z' fill='%233fc46a'/%3E%3C/svg%3E"
+    />
+    <title>Green Hood</title>
+  </head>
+  <body>
+    <main id="shell">
+      <canvas id="game" aria-label="Green Hood game canvas"></canvas>
+
+      <div id="hud">
+        <header class="brand">
+          <h1>GREEN HOOD</h1>
+          <p>archer prototype</p>
+        </header>
+
+        <aside class="controls" aria-label="Controls">
+          <div><kbd>A</kbd><kbd>D</kbd> move <kbd>SPACE</kbd> jump</div>
+          <div><kbd>J</kbd> or click shoot <kbd>R</kbd> reset</div>
+        </aside>
+
+        <p id="score" class="score">SCORE 0</p>
+      </div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
